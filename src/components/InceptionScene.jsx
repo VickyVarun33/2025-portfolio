@@ -1,35 +1,20 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Stars, Environment, Sphere } from '@react-three/drei';
-import { EffectComposer, Bloom, DepthOfField, ChromaticAberration } from '@react-three/postprocessing';
-import { gsap } from 'gsap';
+// InceptionScene.jsx
+import React, { useRef, useState } from 'react';
+import { Canvas, useThree } from '@react-three/fiber';
+import { OrbitControls, Stars } from '@react-three/drei';
 import SpiralStairs from './SpiralStairs';
+import * as THREE from 'three';
+import { gsap } from 'gsap';
 
-export default function InceptionScene({ onStairClick }) {
+// Ensure GSAP plugins are registered
+gsap.registerPlugin();
+
+function CinematicScene({ onStairClick }) {
   const groupRef = useRef();
-  const starsRefNear = useRef();
-  const starsRefFar = useRef();
-  const cameraRef = useRef();
+  const starsRef = useRef();
+  const planetRef = useRef();
   const [isWarping, setIsWarping] = useState(false);
-
-  useEffect(() => {
-    // Landing cinematic animation
-    if (cameraRef.current && groupRef.current) {
-      cameraRef.current.position.set(0, 25, 80);
-      gsap.to(cameraRef.current.position, {
-        y: 2,
-        z: 10,
-        duration: 3.5,
-        ease: 'power2.inOut',
-        onUpdate: () => cameraRef.current.updateProjectionMatrix(),
-      });
-      gsap.from(groupRef.current.rotation, {
-        y: Math.PI * 2,
-        duration: 3.5,
-        ease: 'power2.inOut',
-      });
-    }
-  }, []);
+  const { camera } = useThree();
 
   const handleStairClick = (id) => {
     bendEnvironment();
@@ -50,71 +35,72 @@ export default function InceptionScene({ onStairClick }) {
   };
 
   const warpStars = () => {
-    const target = { size: 1 };
+    if (!starsRef.current) return;
     setIsWarping(true);
-    gsap.to(target, {
+    gsap.to(starsRef.current.material, {
       size: 4,
       duration: 0.8,
       ease: 'power2.inOut',
       yoyo: true,
       repeat: 1,
-      onUpdate: () => {
-        if (starsRefNear.current?.material) starsRefNear.current.material.size = target.size;
-        if (starsRefFar.current?.material) starsRefFar.current.material.size = target.size * 0.5;
-      },
       onComplete: () => setIsWarping(false),
     });
   };
 
   const pulseFOV = () => {
-    const cam = cameraRef.current;
-    gsap.to(cam, {
+    gsap.to(camera, {
       fov: 50,
       duration: 0.3,
       yoyo: true,
       repeat: 1,
-      onUpdate: () => cam.updateProjectionMatrix(),
+      onUpdate: () => camera.updateProjectionMatrix(),
     });
   };
 
   return (
-    <Canvas camera={{ position: [0, 2, 10], fov: 60 }} ref={cameraRef}>
-      {/* Lighting */}
+    <>
+      {/* Space Lighting */}
       <ambientLight intensity={0.4} />
-      <pointLight position={[10, 10, 10]} />
+      <pointLight position={[10, 10, 10]} intensity={1.2} />
 
-      {/* Space environment */}
-      <Environment preset="night" background />
+      {/* Cinematic Stars */}
+      <Stars
+        ref={starsRef}
+        radius={300}
+        depth={100}
+        count={8000}
+        factor={isWarping ? 6 : 4}
+        fade
+        speed={1}
+      />
 
-      {/* Cinematic planet */}
-      <Sphere args={[30, 64, 64]} position={[0, -50, -150]}>
+      {/* Interstellar-Style Planet */}
+      <mesh ref={planetRef} position={[-8, 2, -20]}>
+        <sphereGeometry args={[5, 64, 64]} />
         <meshStandardMaterial
-          color="#223355"
-          emissive="#112244"
+          map={new THREE.TextureLoader().load('/textures/planet_diffuse.jpg')}
+          normalMap={new THREE.TextureLoader().load('/textures/planet_normal.jpg')}
+          emissiveMap={new THREE.TextureLoader().load('/textures/planet_emissive.jpg')}
+          emissive={new THREE.Color(0x222244)}
           emissiveIntensity={0.5}
-          roughness={1}
-          metalness={0.2}
         />
-      </Sphere>
+      </mesh>
 
-      {/* Parallax star layers */}
-      <Stars ref={starsRefFar} radius={200} depth={100} count={3000} factor={2} fade />
-      <Stars ref={starsRefNear} radius={100} depth={50} count={2000} factor={4} fade />
-
-      {/* Main spiral */}
-      <group ref={groupRef}>
+      {/* Spiral Stairs */}
+      <group ref={groupRef} position={[0, -1, 0]}>
         <SpiralStairs onStairClick={handleStairClick} />
       </group>
 
-      {/* Camera controls */}
+      {/* Camera Controls */}
       <OrbitControls enablePan={false} enableZoom={false} />
+    </>
+  );
+}
 
-      {/* Postprocessing effects */}
-      <EffectComposer>
-        <Bloom luminanceThreshold={0.2} luminanceSmoothing={0.9} intensity={1.5} />
-        <DepthOfField focusDistance={0.02} focalLength={0.02} bokehScale={3} height={480} />
-        <ChromaticAberration offset={[0.001, 0.001]} />
-      </EffectComposer>
+export default function InceptionScene({ onStairClick }) {
+  return (
+    <Canvas camera={{ position: [0, 2, 10], fov: 60 }}>
+      <CinematicScene onStairClick={onStairClick} />
     </Canvas>
   );
 }
