@@ -1,139 +1,38 @@
-import React, { useRef, useState, useEffect } from "react";
-import { Canvas, useFrame, extend, useThree } from "@react-three/fiber";
-import { OrbitControls, Stars } from "@react-three/drei";
-import SpiralStairs from "./SpiralStairs";
-import { gsap } from "gsap";
-import * as THREE from "three";
-import { EffectComposer, ShaderPass } from "three-stdlib";
-import { EffectComposer as Composer, RenderPass } from "postprocessing";
-import { EffectComposer as R3FComposer } from "@react-three/postprocessing";
+import React, { useRef, useState, useEffect } from 'react';
+import { Canvas, useThree } from '@react-three/fiber';
+import { OrbitControls, Stars, Environment } from '@react-three/drei';
+import SpiralStairs from './SpiralStairs';
+import { gsap } from 'gsap';
 
-// Gravity lensing shader
-class GravityLensingMaterial extends THREE.ShaderMaterial {
-  constructor() {
-    super({
-      uniforms: {
-        time: { value: 0 },
-        resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-        mouse: { value: new THREE.Vector2(0.5, 0.5) }
-      },
-      vertexShader: `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform float time;
-        uniform vec2 resolution;
-        uniform vec2 mouse;
-        varying vec2 vUv;
-
-        void main() {
-          vec2 uv = vUv;
-          vec2 dir = uv - mouse;
-          float dist = length(dir);
-          float lens = 0.03 / (dist + 0.01);
-          uv += normalize(dir) * lens * sin(time * 2.0) * 0.5;
-          gl_FragColor = vec4(uv, 0.5 + 0.5*sin(time), 1.0);
-        }
-      `
-    });
-  }
-}
-extend({ GravityLensingMaterial });
-
-// Inception wobble shader
-const wobbleShader = {
-  uniforms: {
-    tDiffuse: { value: null },
-    time: { value: 0 }
-  },
-  vertexShader: `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-  `,
-  fragmentShader: `
-    uniform sampler2D tDiffuse;
-    uniform float time;
-    varying vec2 vUv;
-
-    void main() {
-      vec2 uv = vUv;
-      uv.y += 0.015 * sin(uv.x * 8.0 + time * 0.7);
-      uv.x += 0.015 * cos(uv.y * 8.0 + time * 0.5);
-      gl_FragColor = texture2D(tDiffuse, uv);
-    }
-  `
-};
-class WobblePass extends ShaderPass {
-  constructor() {
-    super(new THREE.ShaderMaterial({
-      uniforms: THREE.UniformsUtils.clone(wobbleShader.uniforms),
-      vertexShader: wobbleShader.vertexShader,
-      fragmentShader: wobbleShader.fragmentShader
-    }));
-    this.uniforms = this.material.uniforms;
-  }
-}
-extend({ WobblePass });
-
-function SceneContent({ onStairClick }) {
+export default function InceptionScene({ onStairClick }) {
   const groupRef = useRef();
   const starsRef = useRef();
-  const rippleRef = useRef();
-  const composerRef = useRef();
-  const wobblePassRef = useRef();
-  const mousePos = useRef({ x: 0.5, y: 0.5 });
-  const { camera, gl, scene, size } = useThree();
-
   const [isWarping, setIsWarping] = useState(false);
-  const [time, setTime] = useState(0);
+  const cameraRef = useRef();
 
-  // Mouse tracking
   useEffect(() => {
-    const handleMouseMove = (e) => {
-      mousePos.current.x = e.clientX / window.innerWidth;
-      mousePos.current.y = 1 - e.clientY / window.innerHeight;
-    };
-    window.addEventListener("mousemove", handleMouseMove);
-    return () => window.removeEventListener("mousemove", handleMouseMove);
+    // Landing intro animation
+    if (cameraRef.current && groupRef.current) {
+      cameraRef.current.position.set(0, 15, 50);
+      gsap.to(cameraRef.current.position, {
+        y: 2,
+        z: 10,
+        duration: 3,
+        ease: 'power2.inOut',
+        onUpdate: () => cameraRef.current.updateProjectionMatrix(),
+      });
+      gsap.from(groupRef.current.rotation, {
+        y: Math.PI * 2,
+        duration: 3,
+        ease: 'power2.inOut',
+      });
+    }
   }, []);
-
-  // Setup composer with wobble pass
-  useEffect(() => {
-    const composer = new EffectComposer(gl);
-    composer.addPass(new RenderPass(scene, camera));
-    const wobblePass = new WobblePass();
-    composer.addPass(wobblePass);
-    composerRef.current = composer;
-    wobblePassRef.current = wobblePass;
-  }, [gl, scene, camera]);
-
-  // Animate time for shaders
-  useFrame((_, delta) => {
-    setTime((t) => t + delta);
-    if (rippleRef.current) {
-      rippleRef.current.material.uniforms.time.value = time;
-      rippleRef.current.material.uniforms.mouse.value.set(mousePos.current.x, mousePos.current.y);
-    }
-    if (wobblePassRef.current) {
-      wobblePassRef.current.uniforms.time.value = time;
-    }
-    if (composerRef.current) {
-      composerRef.current.render();
-    }
-  }, 1);
 
   const handleStairClick = (id) => {
     bendEnvironment();
     warpStars();
-    triggerRipple();
-    triggerCameraShake();
+    pulseFOV();
     onStairClick(id);
   };
 
@@ -142,83 +41,54 @@ function SceneContent({ onStairClick }) {
     gsap.to(groupRef.current.rotation, {
       x: Math.PI / 3,
       duration: 1.5,
-      ease: "power2.inOut",
+      ease: 'power2.inOut',
       yoyo: true,
-      repeat: 1
+      repeat: 1,
     });
   };
 
   const warpStars = () => {
     if (!starsRef.current) return;
     setIsWarping(true);
-    gsap.to(starsRef.current.material.uniforms.size, {
-      value: 4,
+
+    // GSAP workaround for size animation
+    const target = { size: 1 };
+    gsap.to(target, {
+      size: 4,
       duration: 0.8,
-      ease: "power2.inOut",
+      ease: 'power2.inOut',
       yoyo: true,
       repeat: 1,
-      onComplete: () => setIsWarping(false)
+      onUpdate: () => {
+        if (starsRef.current.material) {
+          starsRef.current.material.size = target.size;
+        }
+      },
+      onComplete: () => setIsWarping(false),
     });
   };
 
-  const triggerRipple = () => {
-    if (!rippleRef.current) return;
-    gsap.fromTo(
-      rippleRef.current.scale,
-      { x: 0, y: 0, z: 0 },
-      { x: 5, y: 5, z: 5, duration: 0.8, ease: "power2.out" }
-    );
-  };
-
-  const triggerCameraShake = () => {
-    const { x, y } = mousePos.current;
-    const dirX = (x - 0.5) * 2;
-    const dirY = (y - 0.5) * 2;
-    const strength = 0.3;
-    const rollStrength = 0.15;
-    const offsetX = -dirX * strength;
-    const offsetY = dirY * strength;
-    const roll = -dirX * rollStrength;
-    const tl = gsap.timeline();
-    tl.to(camera.position, {
-      x: camera.position.x + offsetX,
-      y: camera.position.y + offsetY,
-      duration: 0.08,
-      ease: "power2.inOut"
-    }, 0)
-      .to(camera.rotation, {
-        z: camera.rotation.z + roll,
-        duration: 0.08,
-        ease: "power2.inOut"
-      }, 0)
-      .to(camera.position, {
-        x: camera.position.x - offsetX * 0.6,
-        y: camera.position.y - offsetY * 0.6,
-        duration: 0.12,
-        ease: "power2.inOut"
-      })
-      .to(camera.rotation, {
-        z: camera.rotation.z - roll * 0.6,
-        duration: 0.12,
-        ease: "power2.inOut"
-      }, "<")
-      .to(camera.position, {
-        x: camera.position.x,
-        y: camera.position.y,
-        duration: 0.08,
-        ease: "power2.inOut"
-      })
-      .to(camera.rotation, {
-        z: camera.rotation.z,
-        duration: 0.08,
-        ease: "power2.inOut"
-      }, "<");
+  const pulseFOV = () => {
+    const { camera } = cameraRef.current;
+    gsap.to(camera, {
+      fov: 50,
+      duration: 0.3,
+      yoyo: true,
+      repeat: 1,
+      onUpdate: () => camera.updateProjectionMatrix(),
+    });
   };
 
   return (
-    <>
+    <Canvas
+      camera={{ position: [0, 2, 10], fov: 60 }}
+      ref={cameraRef}
+      gl={{ antialias: true }}
+    >
       <ambientLight intensity={0.5} />
       <pointLight position={[10, 10, 10]} />
+
+      <Environment preset="sunset" background />
 
       <Stars
         ref={starsRef}
@@ -233,20 +103,7 @@ function SceneContent({ onStairClick }) {
         <SpiralStairs onStairClick={handleStairClick} />
       </group>
 
-      <mesh ref={rippleRef} position={[0, 0, -5]}>
-        <planeGeometry args={[10, 10]} />
-        <gravityLensingMaterial time={time} mouse={[0.5, 0.5]} />
-      </mesh>
-
       <OrbitControls enablePan={false} enableZoom={false} />
-    </>
-  );
-}
-
-export default function InceptionScene({ onStairClick }) {
-  return (
-    <Canvas camera={{ position: [0, 2, 10], fov: 60 }}>
-      <SceneContent onStairClick={onStairClick} />
     </Canvas>
   );
 }
